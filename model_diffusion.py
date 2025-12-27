@@ -91,6 +91,11 @@ class Diffusion(nn.Module):
         self.encoder_type = encoder_type
         if encoder_type == 'resnet34':
             self.diffusion_encoder = resnet_s.resnet34(num_input_channels=3, num_classes=feature_dim).to(self.device)
+        elif encoder_type == 'linear':
+            if fp_dim ==feature_dim:
+                self.diffusion_encoder = nn.Identity()
+            else:
+                self.diffusion_encoder = nn.Linear(fp_dim, feature_dim).to(self.device)
         elif encoder_type == 'resnet18':
             self.diffusion_encoder = resnet_s.resnet18(num_input_channels=3, num_classes=feature_dim).to(self.device)
         elif encoder_type == 'resnet50':

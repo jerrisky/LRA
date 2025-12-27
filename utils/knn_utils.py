@@ -22,25 +22,41 @@ def sample_knn_labels(query_embd, y_query, prior_embd, labels, k=10, n_class=10,
 
     # compute the label of nearest neighbours
     neighbour_label_distribution = labels[neighbour_ind]
+    is_soft_label = (labels.dtype == torch.float32 or labels.dtype == torch.float64) and len(labels.shape) > 1
+    if is_soft_label:
+        # --- LDL
+        # y_query: [N, C] -> [N, 1, C]
+        y_query_expanded = y_query.unsqueeze(1)
+        
+        # 拼接: [N, k, C] + [N, 1, C] -> [N, k+1, C]
+        neighbour_label_distribution = torch.cat((neighbour_label_distribution, y_query_expanded), 1)
 
-    # append the label of query
-    neighbour_label_distribution = torch.cat((neighbour_label_distribution, y_query[:, None]), 1)
+        # 随机从 k+1 个邻居分布里抽一个作为训练目标
+        rand_indices = torch.randint(0, k+1, (n_sample,)).to(query_embd.device)
+        # 选出来的是 [N, C] 的分布
+        sampled_labels = neighbour_label_distribution[torch.arange(n_sample), rand_indices]
 
-    # sampling a label from the k+1 labels (k neighbours and itself)
-    sampled_labels = neighbour_label_distribution[torch.arange(n_sample), torch.randint(0, k+1, (n_sample,))]
-
-    # convert labels to bincount (row wise)
-    y_one_hot_batch = nn.functional.one_hot(neighbour_label_distribution, num_classes=n_class).float()
-
-    # max_agree, _ = torch.max(torch.sum(y_one_hot_batch, dim=1), dim=1)
-
-    neighbour_freq = torch.sum(y_one_hot_batch, dim=1)[torch.tensor([range(n_sample)]), sampled_labels]
-
-    # normalize max count as weight
-    if weighted:
-        weights = neighbour_freq / torch.sum(neighbour_freq)
+        # 权重设为 1 
+        weights = torch.ones([n_sample]).to(query_embd.device)
     else:
-        weights = 1/ n_sample * torch.ones([n_sample]).to(query_embd.device)
+        # append the label of query
+        neighbour_label_distribution = torch.cat((neighbour_label_distribution, y_query[:, None]), 1)
+
+        # sampling a label from the k+1 labels (k neighbours and itself)
+        sampled_labels = neighbour_label_distribution[torch.arange(n_sample), torch.randint(0, k+1, (n_sample,))]
+
+        # convert labels to bincount (row wise)
+        y_one_hot_batch = nn.functional.one_hot(neighbour_label_distribution, num_classes=n_class).float()
+
+        # max_agree, _ = torch.max(torch.sum(y_one_hot_batch, dim=1), dim=1)
+
+        neighbour_freq = torch.sum(y_one_hot_batch, dim=1)[torch.tensor([range(n_sample)]), sampled_labels]
+
+        # normalize max count as weight
+        if weighted:
+            weights = neighbour_freq / torch.sum(neighbour_freq)
+        else:
+            weights = 1/ n_sample * torch.ones([n_sample]).to(query_embd.device)
 
     return sampled_labels, torch.squeeze(weights)
 
